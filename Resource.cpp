@@ -18,6 +18,7 @@
 #include "WorkQueue.h"
 #include "XMLNode.h"
 
+#include <map>
 #include <algorithm>
 
 // STATUST: mingw does seem to redefine UNKNOWN_ERROR from our enum value, so a cast is necessary.
@@ -294,6 +295,81 @@ static status_t parsePackage(Bundle* bundle, const sp<AaptAssets>& assets,
 // ==========================================================================
 // ==========================================================================
 
+// ============  Res Obfuscation begin ============  
+
+// Set to true for noisy debug output.
+static const bool kIsResObfDebug = true;
+// Res Obfuscation switch
+static const bool kIsResObfEnable = true;
+
+// resource path description
+class ResPathDesc
+{
+public:
+    int size;
+    String8 path;
+};
+
+static std::map<String8, ResPathDesc> sMap;
+
+// obtain file extension name
+String8 parseExtensionName(const String8& leaf)
+{
+	const char* firstDot = strchr(leaf.string(), '.');
+
+    if (firstDot) {
+        return String8(firstDot);
+    } else {
+        return String8("");
+    }
+}
+
+// index to path, eg: 0->a, 1->b
+String8 index2path(int index) {
+	String8 sb;
+	int r = index / 26;
+	if (r > 0) {
+		sb.append(index2path(r - 1));
+	}
+	char c[1] = {(char) (index % 26 + 97)};
+	sb.append(c, 1);
+	return sb;
+}
+
+// originalPath -> obfuscationPath
+String8 getObfuscationPath(String8 originalPath) {
+	String8 obfuscationPath("r/");
+	String8 originalPathDir = originalPath.getPathDir();
+	
+	int curIndex;
+	std::map<String8, ResPathDesc>::iterator item = sMap.find(originalPathDir);
+	if (item != sMap.end()) {
+		ResPathDesc& desc = item->second;
+		obfuscationPath = desc.path;
+		curIndex = desc.size++;
+	} else {
+		obfuscationPath.append(index2path(sMap.size()));
+		ResPathDesc desc;
+		desc.size = 0;
+		desc.path = obfuscationPath;
+		curIndex = desc.size++;
+		sMap[originalPathDir] = desc;
+	}
+	obfuscationPath.append("/");
+	obfuscationPath.append(index2path(curIndex));
+	obfuscationPath.append(parseExtensionName(originalPath));
+
+	if (kIsResObfDebug) {
+		fprintf(stderr, "[RESOBF] original: %s, obfuscation: %s \n"
+			, originalPath.string()
+			, obfuscationPath.string()
+			/*, parseExtensionName(originalPath).string()
+			, originalPath.getPathDir().string()*/);
+	}
+	return obfuscationPath;
+}
+// ============  Res Obfuscation end ============  
+
 static status_t makeFileResources(Bundle* bundle, const sp<AaptAssets>& assets,
                                   ResourceTable* table,
                                   const sp<ResourceTypeSet>& set,
@@ -326,13 +402,18 @@ static status_t makeFileResources(Bundle* bundle, const sp<AaptAssets>& assets,
         }
         String8 resPath = it.getPath();
         resPath.convertToResPath();
+
+        ///////// Res Obfuscation begin
+        String8 obfuscationPath = kIsResObfEnable ? getObfuscationPath(resPath) : resPath;
+        ///////// Res Obfuscation end
+        
         table->addEntry(SourcePos(it.getPath(), 0), String16(assets->getPackage()),
                         type16,
                         baseName,
-                        String16(resPath),
+                        String16(obfuscationPath),// String16(resPath),
                         NULL,
                         &it.getParams());
-        assets->addResource(it.getLeafName(), resPath, it.getFile(), type8);
+        assets->addResource(it.getLeafName(), obfuscationPath/*resPath*/, it.getFile(), type8);
     }
 
     return hasErrors ? STATUST(UNKNOWN_ERROR) : NO_ERROR;
