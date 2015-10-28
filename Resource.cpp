@@ -325,15 +325,21 @@ String8 parseExtensionName(const String8& leaf)
 }
 
 // index to path, eg: 0->a, 1->b
-String8 index2path(int index) {
-	String8 sb;
-	int r = index / 26;
+void index2path(String8& sb, int index) {
+	int r = index / 37;
 	if (r > 0) {
-		sb.append(index2path(r - 1));
+		index2path(sb, r - 1);
 	}
-	char c[1] = {(char) (index % 26 + 97)};
+	int offset = index % 37;
+	if (offset < 10) {
+		offset = offset + 48;
+	} else if (offset == 10) {
+		offset = 95;
+	} else {
+		offset = offset + 86;
+	}
+	char c[1] = {(char) offset};
 	sb.append(c, 1);
-	return sb;
 }
 
 // originalPath -> obfuscationPath
@@ -348,7 +354,7 @@ String8 getObfuscationPath(String8 originalPath) {
 		obfuscationPath = desc.path;
 		curIndex = desc.size++;
 	} else {
-		obfuscationPath.append(index2path(sMap.size()));
+		index2path(obfuscationPath, sMap.size());
 		ResPathDesc desc;
 		desc.size = 0;
 		desc.path = obfuscationPath;
@@ -356,7 +362,7 @@ String8 getObfuscationPath(String8 originalPath) {
 		sMap[originalPathDir] = desc;
 	}
 	obfuscationPath.append("/");
-	obfuscationPath.append(index2path(curIndex));
+	index2path(obfuscationPath, curIndex);
 	obfuscationPath.append(parseExtensionName(originalPath));
 
 	if (kIsResObfDebug) {
